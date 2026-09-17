@@ -133,7 +133,7 @@ begin
     perform cron.schedule(
       'gold-prediction-outcomes',
       '*/5 * * * *',
-      $$select public.evaluate_prediction_outcomes('XAUUSD_PROXY_GC',0.00015,1000);$$
+      $cron$select public.evaluate_prediction_outcomes('XAUUSD_PROXY_GC',0.00015,1000);$cron$
     );
   end if;
 end $$;
