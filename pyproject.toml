@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goldlab"
+version = "0.1.0"
+description = "Leakage-safe XAUUSD research, backtesting and signal pipeline"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.1",
+  "pandas>=2.2",
+  "scikit-learn>=1.5",
+  "joblib>=1.4",
+  "requests>=2.32",
+  "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.2"
+]
+
+[project.optional-dependencies]
+mt5 = ["MetaTrader5>=5.0.4874"]
+dev = ["pytest>=8.3", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
