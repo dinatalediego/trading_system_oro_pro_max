@@ -12,7 +12,11 @@ def rsi(close: pd.Series, length: int = 14) -> pd.Series:
     up = d.clip(lower=0).ewm(alpha=1 / length, adjust=False).mean()
     dn = (-d.clip(upper=0)).ewm(alpha=1 / length, adjust=False).mean()
     rs = up / dn.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    value = 100 - (100 / (1 + rs))
+    value = value.mask((dn == 0) & (up > 0), 100.0)
+    value = value.mask((up == 0) & (dn > 0), 0.0)
+    value = value.mask((up == 0) & (dn == 0), 50.0)
+    return value
 
 
 def atr(df: pd.DataFrame, length: int = 14) -> pd.Series:
