@@ -10,7 +10,10 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+from goldlab.features import add_features
+
 YAHOO_BASE = "https://query1.finance.yahoo.com/v8/finance/chart"
+FEATURE_SET_VERSION = "public-bootstrap-v1"
 
 
 @dataclass(frozen=True)
@@ -119,12 +122,69 @@ def to_market_rows(frame: pd.DataFrame, symbol: str, interval: str, provider: st
     return rows
 
 
+def _interval_delta(interval: str) -> pd.Timedelta:
+    if interval.endswith("m") and interval[:-1].isdigit():
+        return pd.Timedelta(minutes=int(interval[:-1]))
+    if interval.endswith("h") and interval[:-1].isdigit():
+        return pd.Timedelta(hours=int(interval[:-1]))
+    if interval in {"1d", "1D"}:
+        return pd.Timedelta(days=1)
+    return pd.Timedelta(0)
+
+
+def to_feature_rows(frame: pd.DataFrame, symbol: str, interval: str) -> list[dict]:
+    enriched = add_features(frame.copy())
+    available_delta = _interval_delta(interval)
+    fields = [
+        "ret_1",
+        "ret_3",
+        "ret_5",
+        "ret_15",
+        "ret_30",
+        "ret_60",
+        "vol_3",
+        "vol_5",
+        "vol_15",
+        "vol_30",
+        "vol_60",
+        "wt_delta",
+    ]
+    rows: list[dict] = []
+    for row in enriched.itertuples(index=False):
+        if pd.isna(row.close):
+            continue
+        signal = "BUY" if row.wt_cross_up == 1 else "SELL" if row.wt_cross_down == 1 else None
+        extra: dict[str, float | None] = {}
+        for field in fields:
+            value = getattr(row, field)
+            extra[field] = None if pd.isna(value) else float(value)
+        rows.append(
+            {
+                "symbol": symbol,
+                "ts": row.ts.isoformat(),
+                "feature_set_version": FEATURE_SET_VERSION,
+                "close": float(row.close),
+                "rsi": None if pd.isna(row.rsi) else float(row.rsi),
+                "atr": None if pd.isna(row.atr) else float(row.atr),
+                "wt1": None if pd.isna(row.wt1) else float(row.wt1),
+                "wt2": None if pd.isna(row.wt2) else float(row.wt2),
+                "squeeze": None if pd.isna(row.squeeze) else float(row.squeeze),
+                "rule_signal": signal,
+                "features": extra,
+                "available_at": (row.ts + available_delta).isoformat(),
+            }
+        )
+    return rows
+
+
 def _chunks(items: list[dict], size: int = 500) -> Iterable[list[dict]]:
     for start in range(0, len(items), size):
         yield items[start : start + size]
 
 
-def upsert_supabase(rows: list[dict], table: str = "market_bars") -> int:
+def upsert_supabase(rows: list[dict], table: str, on_conflict: str) -> int:
+    if not rows:
+        return 0
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not key:
@@ -138,7 +198,7 @@ def upsert_supabase(rows: list[dict], table: str = "market_bars") -> int:
     }
     written = 0
     for batch in _chunks(rows):
-        endpoint = f"{url.rstrip('/')}/rest/v1/{table}?on_conflict=symbol,timeframe,ts,provider"
+        endpoint = f"{url.rstrip('/')}/rest/v1/{table}?on_conflict={on_conflict}"
         response = requests.post(endpoint, headers=headers, json=batch, timeout=60)
         response.raise_for_status()
         written += len(batch)
@@ -167,9 +227,19 @@ def main() -> None:
     print(f"[{datetime.now(timezone.utc).isoformat()}] rows={len(frame)} wrote={out}")
 
     if args.write_supabase:
-        rows = to_market_rows(frame, symbol=args.symbol, interval=args.interval, provider="yahoo_chart")
-        written = upsert_supabase(rows)
-        print(f"supabase_rows={written}")
+        market_rows = to_market_rows(frame, symbol=args.symbol, interval=args.interval, provider="yahoo_chart")
+        feature_rows = to_feature_rows(frame, symbol=args.symbol, interval=args.interval)
+        market_written = upsert_supabase(
+            market_rows,
+            table="market_bars",
+            on_conflict="symbol,timeframe,ts,provider",
+        )
+        feature_written = upsert_supabase(
+            feature_rows,
+            table="gold_market_features",
+            on_conflict="symbol,ts,feature_set_version",
+        )
+        print(f"supabase_market_rows={market_written} supabase_feature_rows={feature_written}")
 
 
 if __name__ == "__main__":
