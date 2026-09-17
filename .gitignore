@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# private financial/account data
+data/private/
+data/raw_private/
+*.mt5.csv
+*.statement.csv
+
+# python
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+artifacts/
+models/
+
+# node
+node_modules/
+.next/
+.vercel/
+
+# system
+.DS_Store
+Thumbs.db
